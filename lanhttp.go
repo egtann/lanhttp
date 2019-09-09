@@ -14,7 +14,7 @@ import (
 
 type Client struct {
 	log    Logger
-	client *http.Client
+	client HTTPClient
 	stop   chan struct{}
 
 	// backends that are currently live
@@ -22,6 +22,10 @@ type Client struct {
 
 	// mu protects backends from concurrent access
 	mu sync.RWMutex
+}
+
+type HTTPClient interface {
+	Do(*http.Request) (*http.Response, error)
 }
 
 type Logger interface {
@@ -37,7 +41,7 @@ type backend struct {
 	Index int
 }
 
-func New(client *http.Client, lg Logger) *Client {
+func New(client HTTPClient, lg Logger) *Client {
 	return &Client{
 		log:      lg,
 		client:   client,
