@@ -28,9 +28,7 @@ type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-type Logger interface {
-	Printf(string, ...interface{})
-}
+type Logger interface{ Printf(string, ...interface{}) }
 
 type Routes map[string][]string
 
@@ -41,7 +39,7 @@ type backend struct {
 	Index int
 }
 
-func New(client HTTPClient, lg Logger) *Client {
+func NewClient(lg Logger, client HTTPClient) *Client {
 	return &Client{
 		log:      lg,
 		client:   client,
@@ -57,7 +55,7 @@ func New(client HTTPClient, lg Logger) *Client {
 func (c *Client) UpdateRoutes(new Routes) {
 	// Check if routes have changed. Most of the time they have not, so we
 	// don't need the write lock.
-	if changed := diff(new, c.routes()); !changed {
+	if changed := diff(new, c.Routes()); !changed {
 		return
 	}
 	c.changeRoutes(new)
@@ -128,7 +126,7 @@ func (c *Client) StopUpdating() {
 }
 
 func (c *Client) changeRoutes(new Routes) {
-	if changed := diff(new, c.routes()); !changed {
+	if changed := diff(new, c.Routes()); !changed {
 		return
 	}
 	c.mu.Lock()
@@ -172,11 +170,11 @@ func (c *Client) getIP(host string) string {
 	return backend.IPs[backend.Index]
 }
 
-func (c *Client) routes() Routes {
+func (c *Client) Routes() Routes {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	r := Routes{}
+	r := make(Routes, len(c.backends))
 	for k, v := range c.backends {
 		r[k] = append([]string{}, v.IPs...)
 	}
