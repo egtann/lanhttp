@@ -35,7 +35,7 @@ type Logger interface{ Printf(string, ...interface{}) }
 
 type Routes map[string][]string
 
-type backends map[string]backend
+type backends map[string]*backend
 
 type backend struct {
 	IPs   []string
@@ -166,9 +166,9 @@ func (c *Client) changeRoutes(new Routes) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	backends := map[string]backend{}
+	backends := map[string]*backend{}
 	for k, ips := range new {
-		backends[k] = backend{IPs: ips}
+		backends[k] = &backend{IPs: ips}
 	}
 	c.backends = backends
 }
