@@ -13,8 +13,8 @@ import (
 )
 
 type Client struct {
-	log    Logger
 	client HTTPClient
+	log    *logger
 	stop   chan struct{}
 
 	// backends that are currently live
@@ -28,6 +28,8 @@ type HTTPClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
+// Logger is the public logging interface. We wrap this with our own logger to
+// provide some more control.
 type Logger interface{ Printf(string, ...interface{}) }
 
 type Routes map[string][]string
@@ -39,13 +41,46 @@ type backend struct {
 	Index int
 }
 
-func NewClient(lg Logger, client HTTPClient) *Client {
+type logger struct {
+	l  Logger
+	mu sync.RWMutex
+}
+
+func (l *logger) Printf(s string, vs ...interface{}) {
+	// By default don't log
+	if l.l == nil {
+		return
+	}
+
+	// If we have a logger, then lock it to ensure we don't write while
+	// it's being replaced. In practice we only log on errors so this
+	// should have a negligible impact
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	l.l.Printf(s, vs...)
+}
+
+func NewClient(client HTTPClient) *Client {
 	return &Client{
-		log:      lg,
+		log:      &logger{},
 		client:   client,
 		backends: backends{},
 		stop:     make(chan struct{}),
 	}
+}
+
+// WithLogger replaces the logger of a client in a threadsafe way. This can be
+// used for instance to load up the internal LAN clients immediately, then
+// update the logger with new settings later in the program, e.g. after
+// environment variables are loaded and you try to connect to internal
+// services.
+func (c *Client) WithLogger(lg Logger) *Client {
+	c.log.mu.Lock()
+	defer c.log.mu.Unlock()
+
+	c.log = &logger{l: lg}
+	return c
 }
 
 // UpdateRoutes in the client for internal servers. This can be called
@@ -78,14 +113,12 @@ func (c *Client) first(urls []string, timeout time.Duration) Routes {
 			return
 		}
 		defer resp.Body.Close()
-
 		if resp.StatusCode != http.StatusOK {
 			c.log.Printf("%s: bad status code: %d", uri, resp.StatusCode)
 			return
 		}
-
 		routes := Routes{}
-		if err := json.NewDecoder(resp.Body).Decode(routes); err != nil {
+		if err := json.NewDecoder(resp.Body).Decode(&routes); err != nil {
 			c.log.Printf("%s: decode: %s", uri, err)
 			return
 		}
@@ -132,7 +165,7 @@ func (c *Client) changeRoutes(new Routes) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var backends map[string]backend
+	backends := map[string]backend{}
 	for k, ips := range new {
 		backends[k] = backend{IPs: ips}
 	}
@@ -142,7 +175,8 @@ func (c *Client) changeRoutes(new Routes) {
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	host, port, err := net.SplitHostPort(req.URL.Host)
 	if err != nil {
-		return nil, fmt.Errorf("split host port: %w", err)
+		host = req.URL.Host
+		port = ""
 	}
 	if !strings.HasSuffix(host, ".internal") {
 		return c.client.Do(req)
@@ -151,7 +185,11 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	if ip == "" {
 		return nil, fmt.Errorf("no live ip for host: %s", host)
 	}
-	req.URL.Host = fmt.Sprintf("%s:%s", ip, port)
+	if port == "" {
+		req.URL.Host = ip
+	} else {
+		req.URL.Host = fmt.Sprintf("%s:%s", ip, port)
+	}
 	return c.client.Do(req)
 }
 
