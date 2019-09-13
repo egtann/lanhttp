@@ -228,8 +228,13 @@ func (c *Client) Routes() Routes {
 }
 
 func diff(a, b Routes) bool {
+	// Exit quickly if lengths are different
+	if len(a) != len(b) {
+		return true
+	}
+
+	// Iterate through every key in a and determine if all values match
 	for key := range a {
-		// Exit quickly if lengths are different
 		if len(a[key]) != len(b[key]) {
 			return true
 		}
@@ -248,6 +253,14 @@ func diff(a, b Routes) bool {
 			if b[key][i] != ip {
 				return true
 			}
+		}
+	}
+
+	// We also need to check that there are no keys in b which don't exist
+	// in a, which aren't checked in the range loop above
+	for key := range b {
+		if _, ok := a[key]; !ok {
+			return true
 		}
 	}
 	return false
