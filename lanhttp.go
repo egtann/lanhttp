@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -173,24 +174,31 @@ func (c *Client) changeRoutes(new Routes) {
 }
 
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	host, port, err := net.SplitHostPort(req.URL.Host)
+	req.URL = c.ResolveHost(req.URL)
+	return c.client.Do(req)
+}
+
+// ResolveHost from a URL to a specific IP if internal, otherwise return the
+// URL unmodified.
+func (c *Client) ResolveHost(uri *url.URL) *url.URL {
+	host, port, err := net.SplitHostPort(uri.Host)
 	if err != nil {
-		host = req.URL.Host
+		host = uri.Host
 		port = ""
 	}
 	if !strings.HasSuffix(host, ".internal") {
-		return c.client.Do(req)
+		return uri
 	}
 	ip := c.getIP(host)
 	if ip == "" {
-		return nil, fmt.Errorf("no live ip for host: %s", host)
+		return uri
 	}
 	if port == "" {
-		req.URL.Host = ip
+		uri.Host = ip
 	} else {
-		req.URL.Host = fmt.Sprintf("%s:%s", ip, port)
+		uri.Host = fmt.Sprintf("%s:%s", ip, port)
 	}
-	return c.client.Do(req)
+	return uri
 }
 
 func (c *Client) getIP(host string) string {
