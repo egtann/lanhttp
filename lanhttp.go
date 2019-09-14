@@ -255,13 +255,5 @@ func diff(a, b Routes) bool {
 			}
 		}
 	}
-
-	// We also need to check that there are no keys in b which don't exist
-	// in a, which aren't checked in the range loop above
-	for key := range b {
-		if _, ok := a[key]; !ok {
-			return true
-		}
-	}
 	return false
 }
