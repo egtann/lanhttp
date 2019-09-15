@@ -106,11 +106,13 @@ func (c *Client) UpdateRoutes(new Routes) {
 }
 
 func (c *Client) first(urls []string, timeout time.Duration) Routes {
+	// Share a single context among all requests, so they're all canceled
+	// or time out together
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
 	ch := make(chan Routes)
 	update := func(uri string) {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-
 		req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
 		if err != nil {
 			c.log.Printf("%s: new request: %s", uri, err)
@@ -139,7 +141,7 @@ func (c *Client) first(urls []string, timeout time.Duration) Routes {
 	select {
 	case routes := <-ch:
 		return routes
-	case <-time.After(timeout):
+	case <-ctx.Done():
 		// Default to keeping our existing routes, so a slowdown from
 		// the reverse proxy doesn't cause an outage
 		return c.Routes()
