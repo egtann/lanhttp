@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hashicorp/go-cleanhttp"
 )
 
 type Client struct {
@@ -69,6 +71,12 @@ func NewClient(client HTTPClient) *Client {
 		backends: backends{},
 		stop:     make(chan struct{}),
 	}
+}
+
+func DefaultClient(timeout time.Duration) *Client {
+	cc := cleanhttp.DefaultClient()
+	cc.Timeout = timeout
+	return NewClient(cc)
 }
 
 // WithLogger replaces the logger of a client in a threadsafe way. This can be
@@ -132,7 +140,9 @@ func (c *Client) first(urls []string, timeout time.Duration) Routes {
 	case routes := <-ch:
 		return routes
 	case <-time.After(timeout):
-		return Routes{}
+		// Default to keeping our existing routes, so a slowdown from
+		// the reverse proxy doesn't cause an outage
+		return c.Routes()
 	}
 }
 
