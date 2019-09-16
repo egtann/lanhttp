@@ -102,7 +102,14 @@ func (c *Client) UpdateRoutes(new Routes) {
 	if changed := diff(new, c.Routes()); !changed {
 		return
 	}
-	c.changeRoutes(new)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	backends := map[string]*backend{}
+	for k, ips := range new {
+		backends[k] = &backend{IPs: ips}
+	}
+	c.backends = backends
 }
 
 func (c *Client) first(urls []string, timeout time.Duration) Routes {
@@ -154,12 +161,12 @@ func (c *Client) first(urls []string, timeout time.Duration) Routes {
 // continue... Just don't expect internal IPs to route until the servers come
 // online.
 func (c *Client) StartUpdating(urls []string, every time.Duration) {
-	c.changeRoutes(c.first(urls, every))
+	c.UpdateRoutes(c.first(urls, every))
 	go func() {
 		for {
 			select {
 			case <-time.After(every):
-				c.changeRoutes(c.first(urls, every))
+				c.UpdateRoutes(c.first(urls, every))
 			case <-c.stop:
 				return
 			}
@@ -169,20 +176,6 @@ func (c *Client) StartUpdating(urls []string, every time.Duration) {
 
 func (c *Client) StopUpdating() {
 	c.stop <- struct{}{}
-}
-
-func (c *Client) changeRoutes(new Routes) {
-	if changed := diff(new, c.Routes()); !changed {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	backends := map[string]*backend{}
-	for k, ips := range new {
-		backends[k] = &backend{IPs: ips}
-	}
-	c.backends = backends
 }
 
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
