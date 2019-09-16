@@ -175,7 +175,11 @@ func (c *Client) StartUpdating(urls []string, every time.Duration) {
 }
 
 func (c *Client) StopUpdating() {
-	c.stop <- struct{}{}
+	// Send if listening, otherwise do nothing
+	select {
+	case c.stop <- struct{}{}:
+	default:
+	}
 }
 
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
