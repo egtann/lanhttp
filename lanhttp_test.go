@@ -1,6 +1,8 @@
 package lanhttp
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestDiff(t *testing.T) {
 	t.Parallel()
@@ -66,5 +68,24 @@ func TestDiff(t *testing.T) {
 				t.Fatal(name, tc.haveA, tc.haveB)
 			}
 		})
+	}
+}
+
+func TestGetIP(t *testing.T) {
+	c := NewClient(nil)
+	c.UpdateRoutes(Routes{
+		"a.internal": []string{"1", "2"},
+	})
+	if got := c.getIP("a.internal"); got != "2" {
+		t.Fatal("expected 2 (1st)")
+	}
+	if got := c.getIP("a.internal"); got != "1" {
+		t.Fatal("expected 1 (1st)")
+	}
+	if got := c.getIP("a.internal"); got != "2" {
+		t.Fatal("expected 2 (2nd)")
+	}
+	if got := c.getIP("a.internal"); got != "1" {
+		t.Fatal("expected 1 (2nd)")
 	}
 }
