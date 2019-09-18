@@ -8,54 +8,59 @@ func TestDiff(t *testing.T) {
 	t.Parallel()
 
 	type testcase struct {
-		haveA map[string][]string
-		haveB map[string][]string
+		haveA Routes
+		haveB Routes
 		want  bool
 	}
 	tcs := map[string]testcase{
 		"same empty": testcase{
-			haveA: map[string][]string{},
-			haveB: map[string][]string{},
+			haveA: Routes{},
+			haveB: Routes{},
 			want:  false,
 		},
 		"same content": testcase{
-			haveA: map[string][]string{"a": []string{"a"}},
-			haveB: map[string][]string{"a": []string{"a"}},
+			haveA: Routes{"a": &backend{IPs: []string{"a"}}},
+			haveB: Routes{"a": &backend{IPs: []string{"a"}}},
 			want:  false,
 		},
 		"sort": testcase{
-			haveA: map[string][]string{"a": []string{"a", "b"}},
-			haveB: map[string][]string{"a": []string{"b", "a"}},
+			haveA: Routes{"a": &backend{IPs: []string{"a", "b"}}},
+			haveB: Routes{"a": &backend{IPs: []string{"b", "a"}}},
+			want:  false,
+		},
+		"index ignored": testcase{
+			haveA: Routes{"a": &backend{Index: 0}},
+			haveB: Routes{"a": &backend{Index: 1}},
 			want:  false,
 		},
 		"a > b": testcase{
-			haveA: map[string][]string{"a": []string{"a"}},
-			haveB: map[string][]string{},
+			haveA: Routes{"a": &backend{IPs: []string{"a"}}},
+			haveB: Routes{},
 			want:  true,
 		},
 		"b > a": testcase{
-			haveA: map[string][]string{},
-			haveB: map[string][]string{"a": []string{"a"}},
+			haveA: Routes{},
+			haveB: Routes{"a": &backend{IPs: []string{"a"}}},
 			want:  true,
 		},
 		"a > b ips": testcase{
-			haveA: map[string][]string{"a": []string{"a", "b", "c"}},
-			haveB: map[string][]string{"a": []string{"a", "c"}},
+			haveA: Routes{"a": &backend{IPs: []string{"a", "b", "c"}}},
+			haveB: Routes{"a": &backend{IPs: []string{"a", "c"}}},
 			want:  true,
 		},
 		"b > a ips": testcase{
-			haveA: map[string][]string{"a": []string{"a"}},
-			haveB: map[string][]string{"a": []string{"a", "b"}},
+			haveA: Routes{"a": &backend{IPs: []string{"a"}}},
+			haveB: Routes{"a": &backend{IPs: []string{"a", "b"}}},
 			want:  true,
 		},
 		"a != b": testcase{
-			haveA: map[string][]string{"a": []string{"a"}},
-			haveB: map[string][]string{"b": []string{"a"}},
+			haveA: Routes{"a": &backend{IPs: []string{"a"}}},
+			haveB: Routes{"b": &backend{IPs: []string{"a"}}},
 			want:  true,
 		},
 		"a != b ips": testcase{
-			haveA: map[string][]string{"a": []string{"a"}},
-			haveB: map[string][]string{"a": []string{"b"}},
+			haveA: Routes{"a": &backend{IPs: []string{"a"}}},
+			haveB: Routes{"a": &backend{IPs: []string{"b"}}},
 			want:  true,
 		},
 	}
@@ -72,9 +77,8 @@ func TestDiff(t *testing.T) {
 }
 
 func TestGetIP(t *testing.T) {
-	c := NewClient(nil)
-	c.UpdateRoutes(Routes{
-		"a.internal": []string{"1", "2"},
+	c := NewClient(nil).WithRoutes(Routes{
+		"a.internal": &backend{IPs: []string{"1", "2"}},
 	})
 	if got := c.getIP("a.internal"); got != "2" {
 		t.Fatal("expected 2 (1st)")

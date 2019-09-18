@@ -21,7 +21,7 @@ type Client struct {
 	stop   chan struct{}
 
 	// backends that are currently live
-	backends backends
+	backends Routes
 
 	// mu protects backends from concurrent access
 	mu sync.RWMutex
@@ -35,9 +35,7 @@ type HTTPClient interface {
 // provide some more control.
 type Logger interface{ Printf(string, ...interface{}) }
 
-type Routes map[string][]string
-
-type backends map[string]*backend
+type Routes map[string]*backend
 
 type backend struct {
 	IPs   []string
@@ -68,7 +66,7 @@ func NewClient(client HTTPClient) *Client {
 	return &Client{
 		log:      &logger{},
 		client:   client,
-		backends: backends{},
+		backends: Routes{},
 		stop:     make(chan struct{}),
 	}
 }
@@ -92,11 +90,11 @@ func (c *Client) WithLogger(lg Logger) *Client {
 	return c
 }
 
-// UpdateRoutes in the client for internal servers. This can be called
+// changeRoutes in the client for internal servers. This can be called
 // periodically based on healthchecks from an external service such as a
 // reverse proxy. Unless you are manually updating your routes, you should use
 // StartUpdating and StopUpdating instead.
-func (c *Client) UpdateRoutes(new Routes) {
+func (c *Client) changeRoutes(new Routes) {
 	// Check if routes have changed. Most of the time they have not, so we
 	// don't need the write lock.
 	if changed := diff(new, c.Routes()); !changed {
@@ -105,11 +103,7 @@ func (c *Client) UpdateRoutes(new Routes) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	backends := map[string]*backend{}
-	for k, ips := range new {
-		backends[k] = &backend{IPs: ips}
-	}
-	c.backends = backends
+	c.backends = new
 }
 
 func (c *Client) first(urls []string, timeout time.Duration) Routes {
@@ -118,7 +112,7 @@ func (c *Client) first(urls []string, timeout time.Duration) Routes {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	ch := make(chan Routes)
+	ch := make(chan map[string][]string)
 	update := func(uri string) {
 		req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
 		if err != nil {
@@ -135,7 +129,7 @@ func (c *Client) first(urls []string, timeout time.Duration) Routes {
 			c.log.Printf("%s: bad status code: %d", uri, resp.StatusCode)
 			return
 		}
-		routes := Routes{}
+		routes := map[string][]string{}
 		if err := json.NewDecoder(resp.Body).Decode(&routes); err != nil {
 			c.log.Printf("%s: decode: %s", uri, err)
 			return
@@ -146,7 +140,11 @@ func (c *Client) first(urls []string, timeout time.Duration) Routes {
 		go update(uri)
 	}
 	select {
-	case routes := <-ch:
+	case backends := <-ch:
+		routes := make(Routes, len(backends))
+		for host, ips := range backends {
+			routes[host] = &backend{IPs: ips}
+		}
 		return routes
 	case <-ctx.Done():
 		// Default to keeping our existing routes, so a slowdown from
@@ -155,18 +153,26 @@ func (c *Client) first(urls []string, timeout time.Duration) Routes {
 	}
 }
 
+func (c *Client) WithRoutes(routes Routes) *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.backends = routes
+	return c
+}
+
 // StartUpdating live backends with an initial, synchronous update before
 // continuing. Try all URLs simultaneously and use results from the first
 // reply. Note that even when this fails, we still allow the code to
 // continue... Just don't expect internal IPs to route until the servers come
 // online.
 func (c *Client) StartUpdating(urls []string, every time.Duration) {
-	c.UpdateRoutes(c.first(urls, every))
+	c.changeRoutes(c.first(urls, every))
 	go func() {
 		for {
 			select {
 			case <-time.After(every):
-				c.UpdateRoutes(c.first(urls, every))
+				c.changeRoutes(c.first(urls, every))
 			case <-c.stop:
 				return
 			}
@@ -225,13 +231,18 @@ func (c *Client) getIP(host string) string {
 	return backend.IPs[backend.Index]
 }
 
+// Routes returns a copy of all live backend IPs and their current round-robin
+// indexes.
 func (c *Client) Routes() Routes {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	r := make(Routes, len(c.backends))
-	for k, v := range c.backends {
-		r[k] = append([]string{}, v.IPs...)
+	for host, b := range c.backends {
+		r[host] = &backend{
+			IPs:   append([]string{}, b.IPs...),
+			Index: b.Index,
+		}
 	}
 	return r
 }
@@ -242,24 +253,27 @@ func diff(a, b Routes) bool {
 		return true
 	}
 
-	// Iterate through every key in a and determine if all values match
+	// Iterate through every key in a and determine if all IPs match
 	for key := range a {
-		if len(a[key]) != len(b[key]) {
+		if (a[key] == nil) != (b[key] == nil) {
+			return true
+		}
+		if len(a[key].IPs) != len(b[key].IPs) {
 			return true
 		}
 
 		// Sort the live backends to get better performance when
 		// diffing them
-		sort.Slice(a[key], func(i, j int) bool {
-			return a[key][i] < a[key][j]
+		sort.Slice(a[key].IPs, func(i, j int) bool {
+			return a[key].IPs[i] < a[key].IPs[j]
 		})
-		sort.Slice(b[key], func(i, j int) bool {
-			return b[key][i] < b[key][j]
+		sort.Slice(b[key].IPs, func(i, j int) bool {
+			return b[key].IPs[i] < b[key].IPs[j]
 		})
 
 		// Compare two and exit on the first different string
-		for i, ip := range a[key] {
-			if b[key][i] != ip {
+		for i, ip := range a[key].IPs {
+			if b[key].IPs[i] != ip {
 				return true
 			}
 		}
