@@ -1,6 +1,7 @@
 package lanhttp
 
 import (
+	"math/rand"
 	"testing"
 )
 
@@ -19,48 +20,43 @@ func TestDiff(t *testing.T) {
 			want:  false,
 		},
 		"same content": testcase{
-			haveA: Routes{"a": &backend{IPs: []string{"a"}}},
-			haveB: Routes{"a": &backend{IPs: []string{"a"}}},
+			haveA: Routes{"a": []string{"a"}},
+			haveB: Routes{"a": []string{"a"}},
 			want:  false,
 		},
 		"sort": testcase{
-			haveA: Routes{"a": &backend{IPs: []string{"a", "b"}}},
-			haveB: Routes{"a": &backend{IPs: []string{"b", "a"}}},
-			want:  false,
-		},
-		"index ignored": testcase{
-			haveA: Routes{"a": &backend{Index: 0}},
-			haveB: Routes{"a": &backend{Index: 1}},
+			haveA: Routes{"a": []string{"a", "b"}},
+			haveB: Routes{"a": []string{"b", "a"}},
 			want:  false,
 		},
 		"a > b": testcase{
-			haveA: Routes{"a": &backend{IPs: []string{"a"}}},
+			haveA: Routes{"a": []string{"a"}},
 			haveB: Routes{},
 			want:  true,
 		},
 		"b > a": testcase{
 			haveA: Routes{},
-			haveB: Routes{"a": &backend{IPs: []string{"a"}}},
+			haveB: Routes{"a": []string{"a"}},
 			want:  true,
 		},
 		"a > b ips": testcase{
-			haveA: Routes{"a": &backend{IPs: []string{"a", "b", "c"}}},
-			haveB: Routes{"a": &backend{IPs: []string{"a", "c"}}},
+			haveA: Routes{"a": []string{"a", "b", "c"}},
+			haveB: Routes{"a": []string{"a", "c"}},
 			want:  true,
 		},
 		"b > a ips": testcase{
-			haveA: Routes{"a": &backend{IPs: []string{"a"}}},
-			haveB: Routes{"a": &backend{IPs: []string{"a", "b"}}},
+			haveA: Routes{"a": []string{"a"}},
+			haveB: Routes{"a": []string{"a", "b"}},
 			want:  true,
 		},
 		"a != b": testcase{
-			haveA: Routes{"a": &backend{IPs: []string{"a"}}},
-			haveB: Routes{"b": &backend{IPs: []string{"a"}}},
+			haveA: Routes{"a": []string{"a"}},
+			haveB: Routes{"b": []string{"a"}},
 			want:  true,
 		},
 		"a != b ips": testcase{
-			haveA: Routes{"a": &backend{IPs: []string{"a"}}},
-			haveB: Routes{"a": &backend{IPs: []string{"b"}}},
+			haveA: Routes{"a": []string{"a"}},
+			haveB: Routes{"a": []string{"b"}},
 			want:  true,
 		},
 	}
@@ -77,19 +73,21 @@ func TestDiff(t *testing.T) {
 }
 
 func TestGetIP(t *testing.T) {
+	// Set a seed to ensure our results below are consistent
+	rand.Seed(16)
 	c := NewClient(nil).WithRoutes(Routes{
-		"a.internal": &backend{IPs: []string{"1", "2"}},
+		"a.internal": []string{"1", "2"},
 	})
-	if got := c.getIP("a.internal"); got != "2" {
-		t.Fatal("expected 2 (1st)")
-	}
 	if got := c.getIP("a.internal"); got != "1" {
 		t.Fatal("expected 1 (1st)")
 	}
 	if got := c.getIP("a.internal"); got != "2" {
-		t.Fatal("expected 2 (2nd)")
+		t.Fatal("expected 2 (1st)")
 	}
 	if got := c.getIP("a.internal"); got != "1" {
 		t.Fatal("expected 1 (2nd)")
+	}
+	if got := c.getIP("a.internal"); got != "2" {
+		t.Fatal("expected 2 (2nd)")
 	}
 }

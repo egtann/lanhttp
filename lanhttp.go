@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -35,12 +36,7 @@ type HTTPClient interface {
 // provide some more control.
 type Logger interface{ Printf(string, ...interface{}) }
 
-type Routes map[string]*backend
-
-type backend struct {
-	IPs   []string
-	Index int
-}
+type Routes map[string][]string
 
 type logger struct {
 	l  Logger
@@ -140,11 +136,7 @@ func (c *Client) first(urls []string, timeout time.Duration) Routes {
 		go update(uri)
 	}
 	select {
-	case backends := <-ch:
-		routes := make(Routes, len(backends))
-		for host, ips := range backends {
-			routes[host] = &backend{IPs: ips}
-		}
+	case routes := <-ch:
 		return routes
 	case <-ctx.Done():
 		// Default to keeping our existing routes, so a slowdown from
@@ -220,29 +212,24 @@ func (c *Client) getIP(host string) string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	backend, ok := c.backends[host]
+	ips, ok := c.backends[host]
 	if !ok {
 		return ""
 	}
-	if len(backend.IPs) == 0 {
+	if len(ips) == 0 {
 		return ""
 	}
-	backend.Index = (backend.Index + 1) % len(backend.IPs)
-	return backend.IPs[backend.Index]
+	return ips[rand.Intn(len(ips))]
 }
 
-// Routes returns a copy of all live backend IPs and their current round-robin
-// indexes.
+// Routes returns a copy of all live backend IPs.
 func (c *Client) Routes() Routes {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	r := make(Routes, len(c.backends))
-	for host, b := range c.backends {
-		r[host] = &backend{
-			IPs:   append([]string{}, b.IPs...),
-			Index: b.Index,
-		}
+	for host, ips := range c.backends {
+		r[host] = append([]string{}, ips...)
 	}
 	return r
 }
@@ -258,22 +245,22 @@ func diff(a, b Routes) bool {
 		if (a[key] == nil) != (b[key] == nil) {
 			return true
 		}
-		if len(a[key].IPs) != len(b[key].IPs) {
+		if len(a[key]) != len(b[key]) {
 			return true
 		}
 
 		// Sort the live backends to get better performance when
 		// diffing them
-		sort.Slice(a[key].IPs, func(i, j int) bool {
-			return a[key].IPs[i] < a[key].IPs[j]
+		sort.Slice(a[key], func(i, j int) bool {
+			return a[key][i] < a[key][j]
 		})
-		sort.Slice(b[key].IPs, func(i, j int) bool {
-			return b[key].IPs[i] < b[key].IPs[j]
+		sort.Slice(b[key], func(i, j int) bool {
+			return b[key][i] < b[key][j]
 		})
 
 		// Compare two and exit on the first different string
-		for i, ip := range a[key].IPs {
-			if b[key].IPs[i] != ip {
+		for i, ip := range a[key] {
+			if b[key][i] != ip {
 				return true
 			}
 		}
