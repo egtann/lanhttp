@@ -108,7 +108,7 @@ func (c *Client) first(urls []string, timeout time.Duration) Routes {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	ch := make(chan map[string][]string)
+	ch := make(chan map[string][]string, len(urls))
 	update := func(uri string) {
 		req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
 		if err != nil {
