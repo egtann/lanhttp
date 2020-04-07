@@ -1,4 +1,4 @@
-module github.com/egtann/lanhttp
+module egt.run/lanhttp
 
 go 1.13
 
